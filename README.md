@@ -27,6 +27,8 @@ Clef は「状態 (state)」と「型付きの質問 (questions)」を受け取�
 | `clef` (デフォルト) | Qwen3.8-27B ベース | 約 55GB | VRAM 80GB 以上 (H100 / H200) |
 | `clef-flash` | Qwen3.5-9B ベース | 約 19GB | VRAM 24GB 以上 / Apple Silicon 32GB 以上 |
 
+Apple Silicon (MPS) でも動きます。M4 Max (メモリ 36GB) で clef-flash を動かした実測では、ロードに約 13 秒、1 リクエストに約 7〜17 秒かかりました。公式の 39ms (H200) よりずっと遅いので、MPS は動作確認や開発向けと考えてください。
+
 Decision Index ではタスクによってどちらが良いかが違います。clef-flash のほうがレイテンシは約 5 倍短いです（中央値 39ms 対 209ms）。
 
 ## セットアップ

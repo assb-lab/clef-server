@@ -4,6 +4,7 @@ version = "0.1.0"
 description = "Inference server for Cloudflare/clef and Cloudflare/clef-flash (Jev/SystemOne API)"
 requires-python = ">=3.14"
 dependencies = [
+    "accelerate>=1.15.0",
     "fastapi>=0.115",
     "huggingface-hub>=1.33.0",
     "numpy>=2.4",
