@@ -125,6 +125,42 @@ response.raise_for_status()
 print(response.json()["answers"])
 ```
 
+### curl で叩く場合
+
+```bash
+curl -s localhost:8000/health
+
+curl -s localhost:8000/v1/systemone \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "state": "Our checkout started returning errors and orders are blocked.",
+    "questions": {
+      "department": {
+        "type": "choice",
+        "instructions": "Which team should handle the message?",
+        "criteria": {"billing": "Payments or invoices", "technical": "Bugs or outages"}
+      },
+      "urgency": {"type": "score", "criteria": ["Can wait", "This week", "Today"]},
+      "outage": {"type": "noul", "instructions": "Is a service down?"}
+    }
+  }'
+```
+
+画像付きのリクエスト (base64 で埋め込む):
+
+```bash
+IMG=$(base64 < receipt.jpg | tr -d '\n')
+curl -s localhost:8000/v1/systemone \
+  -H 'Content-Type: application/json' \
+  -d "{
+    \"state\": {\"task\": \"Review the attached receipt.\"},
+    \"images\": [\"$IMG\"],
+    \"questions\": {\"legible\": {\"type\": \"noul\", \"instructions\": \"Is the receipt total legible?\"}}
+  }"
+```
+
+画像が大きいとコマンドラインの長さ制限に引っかかります。その場合は JSON をファイルに書き出して `-d @request.json` で渡してください。
+
 ### サンプル
 
 ```bash
@@ -213,6 +249,27 @@ client/examples/data/NaCl.cif
 | `score` | 順序付きの説明のリスト (0 始まり) | 期待値 `score`, `confidence`, `legend`, `probabilities` |
 
 `instructions` は省略でき、省略すると質問 ID が指示として使われます。`usage` には `input_tokens` と、サーバー側の推論時間 `latency_ms` が入ります。
+
+レスポンスの例 (数値は例):
+
+```json
+{
+  "model": "clef",
+  "answers": {
+    "department": {
+      "type": "choice", "choice": "technical", "confidence": 0.98,
+      "probabilities": {"billing": 0.02, "technical": 0.98}
+    },
+    "urgency": {
+      "type": "score", "score": 1.93, "confidence": 0.94,
+      "legend": {"0": "Can wait", "1": "This week", "2": "Today"},
+      "probabilities": {"0": 0.01, "1": 0.05, "2": 0.94}
+    },
+    "outage": {"type": "noul", "noul": 0.91}
+  },
+  "usage": {"input_tokens": 142, "output_tokens": 0, "latency_ms": 210.4}
+}
+```
 
 ステータスコード:
 - `400`: 質問が空、`type` が不正、`criteria` が空、画像をデコードできない
