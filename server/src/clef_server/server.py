@@ -23,6 +23,18 @@ from huggingface_hub import snapshot_download
 from PIL import Image
 
 MODELS = {"clef": "Cloudflare/clef", "clef-flash": "Cloudflare/clef-flash"}
+# The first forward pass on a fresh process is several seconds slower (kernel compilation and
+# allocation, especially on MPS). Run one at startup so real requests do not pay for it.
+WARMUP_REQUEST = {
+    "model": "warmup",
+    # A realistic length (~300 tokens): a few-token input leaves later requests partly cold.
+    "state": "warmup " * 256,
+    "questions": {
+        "noul": {"type": "noul"},
+        "choice": {"type": "choice", "criteria": {"a": "first", "b": "second"}},
+        "score": {"type": "score", "criteria": ["low", "high"]},
+    },
+}
 DTYPES = {"bfloat16": torch.bfloat16, "float16": torch.float16, "float32": torch.float32}
 
 logger = logging.getLogger("clef-server")
@@ -35,6 +47,7 @@ class Config:
     device: str | None = None
     dtype: str = "bfloat16"
     max_length: int = 16384
+    warmup: bool = True
 
     @property
     def model_id(self) -> str:
@@ -108,6 +121,11 @@ class ClefRuntime:
         self.model, self.processor = load_release_model(path, device=self.device, dtype=DTYPES[self.config.dtype])
         self._systemone = systemone
         logger.info("loaded in %.1fs", time.perf_counter() - started)
+        if self.config.warmup:
+            started = time.perf_counter()
+            for _ in range(2):
+                self.systemone(WARMUP_REQUEST)
+            logger.info("warmed up in %.1fs", time.perf_counter() - started)
 
     def systemone(self, request: dict[str, Any]) -> dict[str, Any]:
         with self._lock:
@@ -161,6 +179,13 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--device", default=env("CLEF_DEVICE"), help="cuda, cuda:1, mps, cpu (default: auto)")
     parser.add_argument("--dtype", default=env("CLEF_DTYPE", "bfloat16"), choices=sorted(DTYPES))
     parser.add_argument("--max-length", type=int, default=int(env("CLEF_MAX_LENGTH", "16384")))
+    parser.add_argument(
+        "--no-warmup",
+        dest="warmup",
+        action="store_false",
+        default=env("CLEF_WARMUP", "1") != "0",
+        help="skip the warmup forward pass at startup",
+    )
     parser.add_argument("--host", default=env("HOST", "0.0.0.0"))
     parser.add_argument("--port", "-p", type=int, default=int(env("PORT", "8000")))
     return parser.parse_args(argv)
@@ -177,6 +202,7 @@ def main(argv: list[str] | None = None) -> None:
         device=args.device,
         dtype=args.dtype,
         max_length=args.max_length,
+        warmup=args.warmup,
     )
     uvicorn.run(create_app(config), host=args.host, port=args.port)
 

@@ -27,7 +27,7 @@ Clef は「状態 (state)」と「型付きの質問 (questions)」を受け取�
 | `clef` (デフォルト) | Qwen3.8-27B ベース | 約 55GB | VRAM 80GB 以上 (H100 / H200) |
 | `clef-flash` | Qwen3.5-9B ベース | 約 19GB | VRAM 24GB 以上 / Apple Silicon 32GB 以上 |
 
-Apple Silicon (MPS) でも動きます。M4 Max (メモリ 36GB) で clef-flash を動かした実測では、ロードに約 13 秒、1 リクエストに約 7〜17 秒かかりました。公式の 39ms (H200) よりずっと遅いので、MPS は動作確認や開発向けと考えてください。
+Apple Silicon (MPS) でも動きます。ただし公式の値 (H200) よりかなり遅いので、MPS は動作確認や開発向けと考えてください。実測値は「[速度について](#速度について)」を参照してください。
 
 Decision Index ではタスクによってどちらが良いかが違います。clef-flash のほうがレイテンシは約 5 倍短いです（中央値 39ms 対 209ms）。
 
@@ -67,6 +67,7 @@ uv run clef-server --model clef-flash    # Clef-Flash (9B)
 | `--device` | `CLEF_DEVICE` | 自動 (`cuda` → `mps` → `cpu`) | `cuda:1` なども指定可 |
 | `--dtype` | `CLEF_DTYPE` | `bfloat16` | `bfloat16` / `float16` / `float32` |
 | `--max-length` | `CLEF_MAX_LENGTH` | `16384` | 入力の最大トークン数 |
+| `--no-warmup` | `CLEF_WARMUP=0` | ウォームアップする | 起動時のウォームアップ (ダミーの推論 2 回) を省く |
 | `--host` | `HOST` | `0.0.0.0` | 待ち受けるアドレス |
 | `--port`, `-p` | `PORT` | `8000` | 待ち受けるポート |
 
@@ -227,9 +228,44 @@ client/examples/data/NaCl.cif
 | `--hint` | 構造型の定義文。rocksalt, cscl, zincblende, wurtzite, fluorite, antifluorite, rutile, perovskite, spinel, corundum, nias, diamond, fcc, bcc, hcp は組み込みの定義を使います |
 | `--threshold` | YES と判定する確率の閾値 (デフォルト 0.5) |
 | `--no-raw` | 生の CIF は送らず、解析した特徴量だけを送る |
+| `--full-raw` | 生の CIF をそのまま送る。デフォルトでは、トークン数を減らすため対称操作のループとコメントを除いて送る |
 | `--max-raw-chars` | これより大きい CIF は生のテキストを送らない (デフォルト 12000) |
 | `--json` | レポートの代わりに JSON を出力する |
 | `--url` | サーバーの URL (デフォルト `http://localhost:8000`) |
+
+## 速度について
+
+Clef はテキストを生成せず、入力全体を 1 回 forward するだけです。そのため処理時間は入力のトークン数にほぼ比例します。
+
+M4 Max (メモリ 36GB) の MPS で clef-flash を動かした実測値:
+
+| 入力 | トークン数 | 時間 |
+|---|---|---|
+| `basic.py` | 300 | 約 1.0 秒 |
+| `cif_structure.py` (NaCl) | 1,686 | 約 5.2 秒 |
+| 同上 `--full-raw` | 4,667 | 約 16.8 秒 |
+
+速くしたいときは次の方法があります。
+
+- **入力を短くする**: 効果が一番大きい方法です。`cif_structure.py` は、対称操作を解析済みの特徴量として送っているので、生の CIF からは対称操作を除いています。
+- **起動時のウォームアップ**: プロセスを起動して最初の forward は数秒余計にかかります。サーバーは起動時にダミーの推論を済ませておきます（ロードの後に約 8 秒）。
+- **CUDA では最適化カーネルを入れる**: clef / clef-flash は 4 層のうち 3 層が linear attention (Gated DeltaNet) です。[`flash-linear-attention`](https://github.com/fla-org/flash-linear-attention) と [`causal-conv1d`](https://github.com/Dao-AILab/causal-conv1d) が入っていないと、遅い PyTorch 実装で動きます（起動時のログに `falling back to its reference PyTorch implementation` と出ます）。MPS では処理時間の約 63% がこの部分でした。どちらも CUDA 専用です。
+
+  ```bash
+  uv pip install flash-linear-attention causal-conv1d
+  ```
+
+  このリポジトリでは CUDA 環境での効果をまだ確認していません。
+
+量子化 (transformers の `MetalConfig`) は速度改善にはなりません。上と同じ環境で測った結果:
+
+| | ロード | メモリ | 3,334 トークン |
+|---|---|---|---|
+| bf16 (デフォルト) | 8.4 秒 | 19.2GB | 10.2 秒 |
+| int8 | 23.7 秒 | 14.8GB | 10.6 秒 |
+| int4 | 22.7 秒 | 11.6GB | 10.6 秒 |
+
+生成モデルの decode と違い、1 回の forward は重みの読み出しではなく計算量で律速されます。そのため量子化で減るのはメモリだけです。int4 では出力も数 % ずれました。
 
 ## API リファレンス
 

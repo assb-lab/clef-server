@@ -133,6 +133,39 @@ def parse_cif(text: str) -> tuple[dict[str, str], list[dict[str, str]]]:
     return items, [row for loop in rows for row in loop]
 
 
+SYMOP_TAGS = ("_space_group_symop", "_symmetry_equiv_pos")
+
+
+def compact_cif(text: str) -> str:
+    """Drop symmetry-operation loops, comments, and blank lines.
+
+    The operations are already sent in parsed form (space group, multiplicities, coordination), and
+    they make up most of the tokens of a typical CIF (192 lines for Fm-3m).
+    """
+    kept: list[str] = []
+    lines = text.splitlines()
+    index = 0
+    while index < len(lines):
+        line = lines[index].strip()
+        if line.lower() == "loop_":
+            end = index + 1
+            while end < len(lines) and lines[end].strip().startswith("_"):
+                end += 1
+            tags = [tag.strip().lower() for tag in lines[index + 1 : end]]
+            while end < len(lines) and not (
+                lines[end].strip().startswith(("_", "data_")) or lines[end].strip().lower() == "loop_"
+            ):
+                end += 1
+            if not any(tag.startswith(SYMOP_TAGS) for tag in tags):
+                kept.extend(lines[index:end])
+            index = end
+            continue
+        if line and not line.startswith("#"):
+            kept.append(lines[index])
+        index += 1
+    return "\n".join(line for line in kept if line.strip() and not line.strip().startswith("#"))
+
+
 def number(value: str | None) -> float | None:
     """Parse '5.6402(3)' -> 5.6402; '?' and '.' -> None."""
     if value is None or value in ("?", "."):
@@ -458,6 +491,11 @@ def main() -> int:
     parser.add_argument("--hint", help="definition of the structure type (built-in for common names)")
     parser.add_argument("--threshold", type=float, default=0.5, help="probability needed for a YES (default 0.5)")
     parser.add_argument("--no-raw", action="store_true", help="send only parsed features, not the raw CIF")
+    parser.add_argument(
+        "--full-raw",
+        action="store_true",
+        help="send the raw CIF as is (by default symmetry operations and comments are dropped to save tokens)",
+    )
     parser.add_argument("--max-raw-chars", type=int, default=12000, help="skip the raw CIF above this size")
     parser.add_argument("--url", default="http://localhost:8000")
     parser.add_argument("--json", action="store_true", help="print JSON instead of a report")
@@ -471,6 +509,8 @@ def main() -> int:
     for path in args.cif:
         structure = load_structure(path)
         raw = None if args.no_raw else path.read_text(errors="replace")
+        if raw and not args.full_raw:
+            raw = compact_cif(raw)
         if raw and len(raw) > args.max_raw_chars:
             structure.warnings.append(f"raw CIF ({len(raw)} chars) not sent")
             raw = None
