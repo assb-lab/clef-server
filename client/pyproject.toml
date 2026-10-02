@@ -1,0 +1,10 @@
+[project]
+name = "clef-client"
+version = "0.1.0"
+description = "Python client for clef-server (Jev/SystemOne API)"
+requires-python = ">=3.10"
+dependencies = ["requests>=2.32"]
+
+[build-system]
+requires = ["uv_build>=0.9,<1"]
+build-backend = "uv_build"

@@ -1,0 +1,23 @@
+[project]
+name = "clef-server"
+version = "0.1.0"
+description = "Inference server for Cloudflare/clef and Cloudflare/clef-flash (Jev/SystemOne API)"
+requires-python = ">=3.14"
+dependencies = [
+    "fastapi>=0.115",
+    "huggingface-hub>=1.33.0",
+    "numpy>=2.4",
+    "pillow>=12.0",
+    "safetensors>=0.7",
+    "torch>=2.11",
+    "torchvision>=0.26",
+    "transformers>=5.10.2",
+    "uvicorn[standard]>=0.54.0",
+]
+
+[project.scripts]
+clef-server = "clef_server.server:main"
+
+[build-system]
+requires = ["uv_build>=0.9,<1"]
+build-backend = "uv_build"
